@@ -15,12 +15,12 @@
 import { WASI } from "@wasmer/wasi";
 import { WasmFs } from "@wasmer/wasmfs";
 
-export const WasmRunner = (rawOptions, SwiftRuntime) => {
+export const WasmRunner = (rawOptions, ImportUnit) => {
   const options = defaultRunnerOptions(rawOptions);
 
-  let swift;
-  if (SwiftRuntime) {
-    swift = new SwiftRuntime();
+  let importUnit;
+  if (ImportUnit) {
+    importUnit = new ImportUnit();
   }
 
   const wasmFs = createWasmFS(
@@ -44,13 +44,14 @@ export const WasmRunner = (rawOptions, SwiftRuntime) => {
   });
 
   const createWasmImportObject = (extraWasmImports) => {
-    const importObject = {
-      wasi_snapshot_preview1: wrapWASI(wasi),
-    };
-
-    if (swift) {
-      importObject.javascript_kit = swift.wasmImports;
+    let importObject;
+    if (importUnit) {
+      importObject = importUnit.importObject;
+    } else {
+      importObject = {};
     }
+
+    importObject.wasi_snapshot_preview1 = wrapWASI(wasi);
 
     if (extraWasmImports) {
       // Shallow clone
@@ -78,12 +79,18 @@ export const WasmRunner = (rawOptions, SwiftRuntime) => {
       // Node support
       const instance = "instance" in module ? module.instance : module;
 
-      if (swift && instance.exports.swjs_library_version) {
-        swift.setInstance(instance);
+      const context = { instance };
+
+      if (importUnit) {
+        importUnit.setContext(context);
       }
 
       // Start the WebAssembly WASI instance
       wasi.start(instance);
+
+      if (importUnit) {
+        importUnit.start();
+      }
 
       // Initialize and start Reactor
       if (instance.exports._initialize) {
@@ -150,3 +157,35 @@ const wrapWASI = (wasiObject) => {
   };
   return wasiObject.wasiImport;
 };
+
+// encapsulate the swift runtime in an import unit
+export function encapsulateSwiftRuntime(swiftRuntimeClass) {
+  return class {
+    static SwiftRuntime = swiftRuntimeClass;
+    constructor() {
+      this.swiftRuntime = new swiftRuntimeClass();
+    }
+    get importObject() {
+      return { javascript_kit: this.swiftRuntime.wasmImports };
+    }
+    setContext(context) {
+      if (context.instance.exports.swjs_library_version) {
+        this.swiftRuntime.setInstance(context.instance);
+      }
+    }
+    start() {}
+  }
+}
+
+export async function importWasmImportUnit(module, verbose) {
+  try {
+    const { ImportUnit, SwiftRuntime } = await import(module);
+    if (ImportUnit) {
+      return ImportUnit;
+    }
+    if (SwiftRuntime) {
+      return encapsulateSwiftRuntime(SwiftRuntime);
+    }
+  } catch {}
+  return null;
+}

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import fs from "fs/promises";
-import { WasmRunner } from "./common.js";
+import { WasmRunner, importWasmImportUnit } from "./common.js";
 
 const args = [...process.argv];
 args.shift();
@@ -27,22 +27,33 @@ if (!wasmFile) {
 const startWasiTask = async () => {
   const wasmBytes = await fs.readFile(wasmFile);
 
-  let runtimeConstructor;
-  try {
-    const { SwiftRuntime } = await import(
+  let importUnitClass = await importWasmImportUnit(
+    "./wasm-import-unit.mjs"
+  );
+  if (!importUnitClass) {
+    console.log(
+      "Import Unit not available, fallback to JavaScriptKit"
+    );
+    importUnitClass = await importWasmImportUnit(
       "./JavaScriptKit_JavaScriptKit.resources/Runtime/index.mjs"
     );
-
-    runtimeConstructor = SwiftRuntime;
-
-    // Make `require` function available in the Swift environment. By default it's only available in the local scope,
-    // but not on the `global` object.
-    global.require = require;
-  } catch {
-    // No JavaScriptKit module found, run the Wasm module without JSKit
+  }
+  if (!importUnitClass) {
+    console.log(
+      "Import Unit and JavaScriptKit not available, running without any runtime."
+    );
+  }
+  if (importUnitClass && importUnitClass.SwiftRuntime) {
+    console.log(
+      "Import Unit encapsulating the JavaScriptKit runtime."
+    );
   }
 
-  const wasmRunner = WasmRunner({ args: testArgs }, runtimeConstructor);
+  // Make `require` function available in the Swift environment. By default it's only available in the local scope,
+  // but not on the `global` object.
+  global.require = require;
+
+  const wasmRunner = WasmRunner({ args: testArgs }, importUnitClass);
 
   await wasmRunner.run(wasmBytes);
 };

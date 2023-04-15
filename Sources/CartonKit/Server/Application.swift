@@ -73,9 +73,22 @@ extension Application {
       $0.fileio.streamFile(at: configuration.mainWasmPath.pathString)
     }
 
-    // Serve resources for all targets at their respective paths.
     let buildDirectory = configuration.mainWasmPath.parentDirectory
 
+    get ("wasm-import-unit.mjs", use: { (_ request: Request) throws -> Response in
+      let importUnitPath = buildDirectory.appending(component: "wasm-import-unit.mjs")
+      if localFileSystem.isFile(importUnitPath) {
+          return request.fileio.streamFile(at: importUnitPath.pathString)
+      }
+      let swiftRuntimePath = buildDirectory.appending(components: [ "JavaScriptKit_JavaScriptKit.resources", "Runtime", "index.mjs"
+      ])
+      if localFileSystem.isFile(swiftRuntimePath) {
+          return request.fileio.streamFile(at: swiftRuntimePath.pathString)
+      }
+      throw Abort(.notFound)
+    })
+
+    // Serve resources for all targets at their respective paths.
     func requestHandler(_ directoryName: String) -> ((Request) -> Response) {
       { (request: Request) -> Response in
         request.fileio.streamFile(

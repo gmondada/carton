@@ -14,7 +14,7 @@
 
 import ReconnectingWebSocket from "reconnecting-websocket";
 import { WASIExitError } from "@wasmer/wasi";
-import { WasmRunner } from "./common.js";
+import { WasmRunner, importWasmImportUnit } from "./common.js";
 
 const socket = new ReconnectingWebSocket(`ws://${location.host}/watcher`);
 socket.addEventListener("message", (message) => {
@@ -28,15 +28,25 @@ const startWasiTask = async () => {
   const response = await fetch("/main.wasm");
   const responseArrayBuffer = await response.arrayBuffer();
 
-  let runtimeConstructor;
-  try {
-    const { SwiftRuntime } = await import(
+  let importUnitClass = await importWasmImportUnit(
+    "./wasm-import-unit.mjs"
+  );
+  if (!importUnitClass) {
+    console.log(
+      "Import Unit not available, fallback to JavaScriptKit"
+    );
+    importUnitClass = await importWasmImportUnit(
       "./JavaScriptKit_JavaScriptKit.resources/Runtime/index.mjs"
     );
-    runtimeConstructor = SwiftRuntime;
-  } catch {
+  }
+  if (!importUnitClass) {
     console.log(
-      "JavaScriptKit module not available, running without JavaScriptKit runtime."
+      "Import Unit and JavaScriptKit not available, running without any runtime."
+    );
+  }
+  if (importUnitClass && importUnitClass.SwiftRuntime) {
+    console.log(
+      "Import Unit encapsulating the JavaScriptKit runtime."
     );
   }
 
@@ -55,7 +65,7 @@ const startWasiTask = async () => {
         );
       },
     },
-    runtimeConstructor
+    importUnitClass
   );
 
   // Instantiate the WebAssembly file
